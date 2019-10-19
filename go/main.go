@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -16,12 +17,21 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/rs/cors"
+	"github.com/unrolled/secure"
+	"github.com/urfave/negroni"
 )
 
 // This is a reference implementation of an API that we'll
 // implement in several other languages.
+//
+// Most of the advice for Go, especially when starting out,
+// is to use the standard libraries + negroni + gorilla so here it is.
 func main() {
 	sig := make(chan os.Signal, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -53,10 +63,36 @@ func run(ctx context.Context) error {
 		return err
 	}
 
+	r := mux.NewRouter().StrictSlash(true)
+	if err := r.HandleFunc("/fib", fib).Methods(http.MethodGet, http.MethodOptions).GetError(); err != nil {
+		return err
+	}
+	r.Use(mux.CORSMethodMiddleware(r))
+
+	n := negroni.Classic() // Not the best, but decent enough for a reference implementation.
+
+	// A few easy security wins
+	secureMiddleware := secure.New(secure.Options{
+		SSLRedirect:           true,
+		STSSeconds:            31536000,
+		STSIncludeSubdomains:  true,
+		STSPreload:            true,
+		FrameDeny:             true,
+		ContentTypeNosniff:    true,
+		BrowserXssFilter:      true,
+		ContentSecurityPolicy: "default-src 'self'; script-src $NONCE",
+	})
+	n.Use(negroni.HandlerFunc(secureMiddleware.HandlerFuncWithNext))
+
+	n.Use(cors.Default())
+
+	n.UseHandler(r)
+
 	srv := &http.Server{
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
+		Handler:      n,
 	}
 	srv.SetKeepAlivesEnabled(true)
 
@@ -83,24 +119,25 @@ func run(ctx context.Context) error {
 	err = srv.Shutdown(newctx)
 	switch err {
 	case nil:
-		return <-ch
 	case http.ErrServerClosed:
-		return <-ch
 	case context.Canceled:
-		return <-ch
 	case context.DeadlineExceeded:
 		if err := srv.Close(); err != nil {
 			return err
 		}
-		return <-ch
 	default:
 		if err := srv.Close(); err != nil {
 			return err
 		}
-		return <-ch
 	}
+
+	if err := <-ch; err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
+// A basic tuned TLS config.
 func tlsConfig() (*tls.Config, error) {
 	cert, err := tlsCert()
 	if err != nil {
@@ -126,9 +163,14 @@ func tlsConfig() (*tls.Config, error) {
 	}, nil
 }
 
+// A self-signed certificate.
 func tlsCert() (tls.Certificate, error) {
-	var cert tls.Certificate
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	var (
+		cert tls.Certificate
+		priv interface{}
+		err  error
+	)
+	priv, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return cert, err
 	}
@@ -151,7 +193,7 @@ func tlsCert() (tls.Certificate, error) {
 		BasicConstraintsValid: true,
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, priv.PublicKey, priv)
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, publicKey(priv), priv)
 	if err != nil {
 		return cert, err
 	}
@@ -175,4 +217,51 @@ func tlsCert() (tls.Certificate, error) {
 	}
 
 	return tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
+}
+
+func publicKey(priv interface{}) interface{} {
+	switch k := priv.(type) {
+	case *ecdsa.PrivateKey:
+		return &k.PublicKey
+	default:
+		return nil
+	}
+}
+
+func fib(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+
+	n, err := strconv.Atoi(vars["n"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	result := fastfib(n)
+
+	// This is very obviously not necessary but its good for the comparison
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(result); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+	}
+}
+
+func fastfib(n int) int {
+	var (
+		curr   int
+		twoAgo int
+		oneAgo = 1
+	)
+	for i := 2; i <= n; i++ {
+		curr = twoAgo + oneAgo
+		twoAgo = oneAgo
+		oneAgo = curr
+	}
+	return curr
 }
