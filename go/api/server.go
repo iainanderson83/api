@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"bytes"
@@ -9,16 +9,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -27,31 +22,11 @@ import (
 	"github.com/urfave/negroni"
 )
 
-// This is a reference implementation of an API that we'll
-// implement in several other languages.
-//
-// Most of the advice for Go, especially when starting out,
-// is to use the standard libraries + negroni + gorilla so here it is.
-func main() {
-	sig := make(chan os.Signal, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		time.Sleep(time.Second) // let everything start
-		fmt.Fprintf(os.Stdout, "%s received\n", <-sig)
-		cancel()
-	}()
-
-	if err := run(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
+func Serve(ctx context.Context) error {
+	if e != nil {
+		return e
 	}
-}
 
-func run(ctx context.Context) error {
 	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		return err
@@ -63,10 +38,6 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	r := mux.NewRouter().StrictSlash(true)
-	if err := r.HandleFunc("/fib", fib).Methods(http.MethodGet, http.MethodOptions).GetError(); err != nil {
-		return err
-	}
 	r.Use(mux.CORSMethodMiddleware(r))
 
 	n := negroni.Classic() // Not the best, but decent enough for a reference implementation.
@@ -226,42 +197,4 @@ func publicKey(priv interface{}) interface{} {
 	default:
 		return nil
 	}
-}
-
-func fib(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-
-	n, err := strconv.Atoi(vars["n"])
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	result := fastfib(n)
-
-	// This is very obviously not necessary but its good for the comparison
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(result); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if _, err := w.Write(buf.Bytes()); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-	}
-}
-
-func fastfib(n int) int {
-	var (
-		curr   int
-		twoAgo int
-		oneAgo = 1
-	)
-	for i := 2; i <= n; i++ {
-		curr = twoAgo + oneAgo
-		twoAgo = oneAgo
-		oneAgo = curr
-	}
-	return curr
 }
