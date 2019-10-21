@@ -14,7 +14,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/iainanderson83/apis/go/api"
+	"github.com/iainanderson83/api/go/api"
 )
 
 // This is a reference implementation of an API that we'll
