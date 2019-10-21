@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -79,6 +80,7 @@ func Serve(ctx context.Context) error {
 				}
 			}
 		}()
+		fmt.Fprintf(os.Stdout, "Listening on %s (TLS)", ln.Addr().String())
 		ch <- srv.Serve(tls.NewListener(ln, tlsCfg))
 	}()
 
