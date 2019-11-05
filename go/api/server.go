@@ -23,6 +23,7 @@ import (
 	"github.com/urfave/negroni"
 )
 
+// Serve is the main blocking function that handles incoming requests.
 func Serve(ctx context.Context) error {
 	if e != nil {
 		return e

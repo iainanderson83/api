@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
-	"time"
 
 	"github.com/gorilla/mux"
 
 	"github.com/iainanderson83/api/go/api"
+	"github.com/iainanderson83/api/go/runner"
 )
 
 // This is a reference implementation of an API that we'll
@@ -23,22 +21,7 @@ import (
 // Most of the advice for Go, especially when starting out,
 // is to use the standard libraries + negroni + gorilla so here it is.
 func main() {
-	sig := make(chan os.Signal, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		time.Sleep(time.Second) // let everything start
-		fmt.Fprintf(os.Stdout, "%s received\n", <-sig)
-		cancel()
-	}()
-
-	if err := run(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
-	}
+	runner.Run(run)
 }
 
 func run(ctx context.Context) error {

@@ -11,6 +11,7 @@ var (
 	r = mux.NewRouter().StrictSlash(true)
 )
 
+// Get registers a handler for a GET request.
 func Get(path string, handler http.HandlerFunc) {
 	if e != nil {
 		return
@@ -20,6 +21,7 @@ func Get(path string, handler http.HandlerFunc) {
 	}
 }
 
+// Post registers a handler for a POST request.
 func Post(path string, handler http.HandlerFunc) {
 	if e != nil {
 		return
